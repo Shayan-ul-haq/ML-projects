@@ -1,1 +1,146 @@
+import time
+import numpy as np
+import pandas as pd
+from sklearn.datasets import fetch_openml
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC, LinearSVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.linear_model import SGDClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
 
+# -------------------------------
+# 1. Load MNIST
+# -------------------------------
+print("Loading MNIST dataset...")
+mnist = fetch_openml('mnist_784', version=1, as_frame=False)
+X, y = mnist["data"], mnist["target"].astype(int)
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# Scale data
+print("Scaling data...")
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+
+# Helper function to compute metrics
+def evaluate(model, name):
+    start = time.time()
+    model.fit(X_train_scaled, y_train)
+    train_time = time.time() - start
+
+    y_pred = model.predict(X_test_scaled)
+
+    return {
+        "Model": name,
+        "Accuracy": accuracy_score(y_test, y_pred),
+        "Precision": precision_score(y_test, y_pred, average='macro'),
+        "Recall": recall_score(y_test, y_pred, average='macro'),
+        "F1 Score": f1_score(y_test, y_pred, average='macro'),
+        "Train Time (s)": train_time
+    }
+
+
+results = []
+
+# -------------------------------
+# 2. SVM Linear
+# -------------------------------
+print("Training Linear SVM...")
+linear_svm = LinearSVC(C=1, max_iter=5000)
+results.append(evaluate(linear_svm, "Linear SVM"))
+
+
+# -------------------------------
+# 3. SVM Polynomial Kernel (Random Search)
+# -------------------------------
+print("Random Search: Poly SVM...")
+param_poly = {
+    "C": [0.1, 1, 10],
+    "degree": [2, 3, 4],
+    "coef0": [0, 1, 2],
+    "kernel": ["poly"]
+}
+
+poly_search = RandomizedSearchCV(
+    SVC(),
+    param_distributions=param_poly,
+    n_iter=5,
+    cv=2,
+    scoring="accuracy",
+    n_jobs=-1,
+    verbose=1
+)
+
+poly_search.fit(X_train_scaled, y_train)
+best_poly = poly_search.best_estimator_
+
+results.append(evaluate(best_poly, "SVM Poly (best)"))
+
+
+# -------------------------------
+# 4. SVM RBF Kernel (Random Search)
+# -------------------------------
+print("Random Search: RBF SVM...")
+param_rbf = {
+    "C": [1, 10, 50],
+    "gamma": ["scale", 0.01, 0.001],
+    "kernel": ["rbf"]
+}
+
+rbf_search = RandomizedSearchCV(
+    SVC(),
+    param_distributions=param_rbf,
+    n_iter=5,
+    cv=2,
+    scoring="accuracy",
+    n_jobs=-1,
+    verbose=1
+)
+
+rbf_search.fit(X_train_scaled, y_train)
+best_rbf = rbf_search.best_estimator_
+
+results.append(evaluate(best_rbf, "SVM RBF (best)"))
+
+
+# -------------------------------
+# 5. KNN
+# -------------------------------
+print("Training KNN...")
+knn = KNeighborsClassifier(n_neighbors=3)
+results.append(evaluate(knn, "KNN (k=3)"))
+
+
+# -------------------------------
+# 6. SGDClassifier
+# -------------------------------
+print("Training SGDClassifier...")
+sgd = SGDClassifier(loss="hinge")
+results.append(evaluate(sgd, "SGDClassifier"))
+
+
+# -------------------------------
+# 7. Random Forest
+# -------------------------------
+print("Training Random Forest...")
+rf = RandomForestClassifier(n_estimators=200, n_jobs=-1)
+results.append(evaluate(rf, "Random Forest"))
+
+
+# -------------------------------
+# 8. Show Comparison Table
+# -------------------------------
+df_results = pd.DataFrame(results)
+print("\n\n==== FINAL COMPARISON TABLE ====\n")
+print(df_results)
+
+# Also show best SVM models found
+print("\nBest Poly SVM Params:", poly_search.best_params_)
+print("Best RBF SVM Params:", rbf_search.best_params_)
